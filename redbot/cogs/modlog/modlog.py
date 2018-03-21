@@ -4,7 +4,7 @@ from discord.ext import commands
 from redbot.core import checks, modlog, RedContext
 from redbot.core.bot import Red
 from redbot.core.i18n import CogI18n
-from redbot.core.utils.chat_formatting import box
+from redbot.core.utils.chat_formatting import box, warning
 
 _ = CogI18n('ModLog', __file__)
 
@@ -107,6 +107,33 @@ class ModLog:
 
     @commands.command()
     @commands.guild_only()
+    @checks.admin_or_permissions(manage_guild=True)
+    async def casemod(self, ctx: RedContext, case: int, moderator: discord.abc.User):
+        """
+        Lets you specify the moderator for a mod log case.
+
+        Useful for setting a mod for cases resulting from a manual
+        action (such as right-clicking a user and clicking "Ban")
+        so they can use the reason command to edit the case.
+        """
+        guild = ctx.guild
+        try:
+            case_before = await modlog.get_case(case, guild, self.bot)
+        except RuntimeError:
+            await ctx.send(_("That case does not exist!"))
+            return
+        else:
+            if case_before.moderator is not None:
+                await ctx.send(_("That case already has a moderator set!"))
+                return
+            to_modify = {"moderator": moderator}
+            await case_before.edit(to_modify)
+            await ctx.send(_(
+                "{} has been set as the moderator for case {}."
+            ).format(moderator.mention, case))
+
+    @commands.command()
+    @commands.guild_only()
     async def reason(self, ctx: RedContext, case: int, *, reason: str = ""):
         """Lets you specify a reason for mod-log's cases
         Please note that you can only edit cases you are
@@ -123,22 +150,14 @@ class ModLog:
             return
         else:
             if case_before.moderator is None:
-                # No mod set, so attempt to find out if the author
-                # triggered the case creation with an action
-                bot_perms = guild.me.guild_permissions
-                if bot_perms.view_audit_log:
-                    case_type = await modlog.get_casetype(case_before.action_type, guild)
-                    if case_type is not None and case_type.audit_type is not None:
-                        audit_type = getattr(discord.AuditLogAction, case_type.audit_type)
-                        if audit_type:
-                            audit_case = None
-                            async for entry in guild.audit_logs(action=audit_type):
-                                if entry.target.id == case_before.user.id and \
-                                        entry.user.id == case_before.moderator.id:
-                                    audit_case = entry
-                                    break
-                            if audit_case:
-                                case_before.moderator = audit_case.user
+                await ctx.send(
+                    warning(_(
+                        "This mod log case has no moderator set! One can be "
+                        "set with {}"
+                    ).format("`{}casemod <case_number> <moderator>`".format(
+                        ctx.prefix)
+                    ))
+                )
             is_guild_owner = author == guild.owner
             is_case_author = author == case_before.moderator
             author_is_mod = await ctx.bot.is_mod(author)
