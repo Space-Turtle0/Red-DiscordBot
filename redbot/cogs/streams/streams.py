@@ -1,4 +1,5 @@
 import discord
+import aiohttp
 from redbot.core import Config, checks, commands
 from redbot.core.utils.chat_formatting import pagify
 from redbot.core.bot import Red
@@ -37,7 +38,7 @@ _ = Translator("Streams", __file__)
 @cog_i18n(_)
 class Streams:
 
-    global_defaults = {"tokens": {}, "streams": [], "communities": []}
+    global_defaults = {"tokens": {}, "streams": [], "communities": [], "teams": {}}
 
     guild_defaults = {"autodelete": False, "mention_everyone": False, "mention_here": False}
 
@@ -53,6 +54,7 @@ class Streams:
         self.db.register_role(**self.role_defaults)
 
         self.bot: Red = bot
+        self.twitch_access_token = ""
 
         self.streams: List[Stream] = []
         self.communities: List[TwitchCommunity] = []
@@ -66,8 +68,31 @@ class Streams:
             return True
         return False
 
+    async def get_twitch_access_token(self, tokens: dict):
+        async with aiohttp.ClientSession() as sess:
+            async with sess.post(
+                "https://id.twitch.tv/oauth2/token", 
+                params={
+                    "client_id": tokens["client-id"], 
+                    "client_secret": tokens["client-secret"], 
+                    "grant_type": "client_credentials"
+                }
+            ) as r:
+                data = await r.json()
+                self.twitch_access_token = data["access_token"]
+    
     async def initialize(self) -> None:
         """Should be called straight after cog instantiation."""
+        # Convert tokens to a dict to allow for client IDs
+        tokens = await self.db.tokens.get_raw("TwitchStream", default=None)
+        if tokens and not isinstance(tokens, dict):
+            await self.db.tokens.set_raw("TwitchStream", value={"client-id": tokens})
+            await self.db.tokens.set_raw("TwitchCommunity", value={"client-id": tokens})
+            tokens = await self.db.tokens.get_raw("TwitchStream", default=None)
+        
+        if "client-secret" in tokens and tokens["client-secret"]:
+            await self.get_twitch_access_token(tokens)
+        
         self.streams = await self.load_streams()
         self.communities = await self.load_communities()
 
@@ -148,6 +173,11 @@ class Streams:
             await ctx.invoke(self.twitch_alert_channel, channel_name)
         else:
             await ctx.send_help()
+
+    @_twitch.command(name="team")
+    async def twitch_alert_team(self, ctx: commands.Context, team_name: str):
+        """Sets an alert notification in the channel for the specified team"""
+        
 
     @_twitch.command(name="channel")
     async def twitch_alert_channel(self, ctx: commands.Context, channel_name: str):
@@ -307,7 +337,7 @@ class Streams:
 
     @streamset.command()
     @checks.is_owner()
-    async def twitchtoken(self, ctx: commands.Context, token: str):
+    async def twitchtoken(self, ctx: commands.Context, client_id: str, client_secret: str=None):
         """Set the Client ID for twitch.
         To do this, follow these steps:
           1. Go to this page: https://dev.twitch.tv/dashboard/apps.
@@ -316,9 +346,11 @@ class Streams:
              select an Application Category of your choosing.
           4. Click *Register*, and on the following page, copy the Client ID.
           5. Paste the Client ID into this command. Done!
+
+        The `client_secret` parameter is optional but may be provided if desired
         """
-        await self.db.tokens.set_raw("TwitchStream", value=token)
-        await self.db.tokens.set_raw("TwitchCommunity", value=token)
+        await self.db.tokens.set_raw("TwitchStream", value={"client-id": client_id, "client-secret": client_secret})
+        await self.db.tokens.set_raw("TwitchCommunity", value={"client-id": client_id, "client-secret": client_secret})
         await ctx.send(_("Twitch token set."))
 
     @streamset.command()

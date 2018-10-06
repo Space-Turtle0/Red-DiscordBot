@@ -10,6 +10,10 @@ class CommunityNotFound(StreamsError):
     pass
 
 
+class TeamNotFound(StreamsError):
+    pass
+
+
 class APIError(StreamsError):
     pass
 

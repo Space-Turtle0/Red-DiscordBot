@@ -6,6 +6,7 @@ from .errors import (
     OfflineCommunity,
     InvalidYoutubeCredentials,
     InvalidTwitchCredentials,
+    TeamNotFound,
 )
 from random import choice, sample
 from string import ascii_letters
@@ -17,6 +18,8 @@ TWITCH_BASE_URL = "https://api.twitch.tv"
 TWITCH_ID_ENDPOINT = TWITCH_BASE_URL + "/kraken/users?login="
 TWITCH_STREAMS_ENDPOINT = TWITCH_BASE_URL + "/kraken/streams/"
 TWITCH_COMMUNITIES_ENDPOINT = TWITCH_BASE_URL + "/kraken/communities"
+TWITCH_TEAMS_ENDPOINT = TWITCH_BASE_URL + "/kraken/teams"
+TWITCH_HELIX_STREAMS_ENDPOINT = TWITCH_BASE_URL + "/helix/streams"
 
 YOUTUBE_BASE_URL = "https://www.googleapis.com/youtube/v3"
 YOUTUBE_CHANNELS_ENDPOINT = YOUTUBE_BASE_URL + "/channels"
@@ -27,6 +30,52 @@ YOUTUBE_VIDEOS_ENDPOINT = YOUTUBE_BASE_URL + "/videos"
 def rnd(url):
     """Appends a random parameter to the url to avoid Discord's caching"""
     return url + "?rnd=" + "".join([choice(ascii_letters) for i in range(6)])
+
+
+class TwitchTeam:
+    def __init__(self, **kwargs):
+        self.name = kwargs.pop("name")
+        self._token = kwargs.pop("token")
+        self.discord_channels = kwargs.pop("discord_channels", [])
+        self.channels = kwargs.pop("channels", [])
+    
+    async def get_channels(self):
+        url = TWITCH_TEAMS_ENDPOINT + "/" + self.name
+        headers = {"Accept": "application/vnd.twitchtv.v5+json", "Client-ID": str(self._token)}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as r:
+                data = await r.json()
+        if r.status == 200:
+            self.channels = [c["_id"] for c in data["users"]]
+        elif r.status == 400:
+            raise InvalidTwitchCredentials()
+        elif r.status == 404:
+            raise TeamNotFound()
+        else:
+            raise APIError()
+    
+    async def check_online(self):
+        headers = {"Client-ID": str(self._token), "Accept": "application/vnd.twitchtv.v5+json"}
+        params = [("user_id", c) for c in self.channels]
+        results = []
+        while params:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(TWITCH_HELIX_STREAMS_ENDPOINT, headers=headers, params=params[:100]) as r:
+                    data = await r.json(encoding="utf-8")
+            if r.status == 200:
+                if data["stream"] is None:
+                    # self.already_online = False
+                    raise OfflineStream()
+                # self.already_online = True
+                #  In case of rename
+                self.name = data["stream"]["channel"]["name"]
+                self.make_embed(data)
+            elif r.status == 400:
+                raise InvalidTwitchCredentials()
+            elif r.status == 404:
+                raise StreamNotFound()
+            else:
+                raise APIError()
 
 
 class TwitchCommunity:
