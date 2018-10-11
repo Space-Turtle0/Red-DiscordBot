@@ -82,7 +82,8 @@ class Streams(commands.Cog):
                 }
             ) as r:
                 data = await r.json()
-                self.twitch_access_token = data["access_token"]
+                if r.status == 200:
+                    self.twitch_access_token = data["access_token"]
     
     async def initialize(self) -> None:
         """Should be called straight after cog instantiation."""
@@ -354,7 +355,6 @@ class Streams(commands.Cog):
 
     @streamset.command()
     @checks.is_owner()
-<<<<<<< HEAD
     async def twitchtoken(self, ctx: commands.Context, client_id: str, client_secret: str=None):
         """Set the Client ID for twitch.
         To do this, follow these steps:
@@ -366,18 +366,6 @@ class Streams(commands.Cog):
           5. Paste the Client ID into this command. Done!
 
         The `client_secret` parameter is optional but may be provided if desired
-=======
-    async def twitchtoken(self, ctx: commands.Context, token: str):
-        """Set the Client ID for Twitch.
-
-        To do this, follow these steps:
-        1. Go to this page: https://dev.twitch.tv/dashboard/apps.
-        2. Click *Register Your Application*
-        3. Enter a name, set the OAuth Redirect URI to `http://localhost`, and
-           select an Application Category of your choosing.
-        4. Click *Register*, and on the following page, copy the Client ID.
-        5. Paste the Client ID into this command. Done!
->>>>>>> release/V3/develop
         """
         await self.db.tokens.set_raw("TwitchStream", value={"client-id": client_id, "client-secret": client_secret})
         await self.db.tokens.set_raw("TwitchCommunity", value={"client-id": client_id, "client-secret": client_secret})
